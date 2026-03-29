@@ -2,14 +2,7 @@ import streamlit as st
 import anthropic
 import base64
 import json
-import requests
 from pathlib import Path
-
-try:
-    import fal_client
-    FAL_SDK_AVAILABLE = True
-except ImportError:
-    FAL_SDK_AVAILABLE = False
 
 st.set_page_config(
     page_title="Hero Image Generator",
@@ -90,7 +83,7 @@ h1, h2, h3 {
     border: 1px solid #2a2a2a;
     border-radius: 10px;
     padding: 20px 24px;
-    margin-bottom: 4px;
+    margin-bottom: 16px;
 }
 
 .concept-index {
@@ -106,7 +99,7 @@ h1, h2, h3 {
     font-size: 16px;
     font-weight: 500;
     color: #e8e8e0;
-    margin-bottom: 0;
+    margin-bottom: 16px;
 }
 
 .field-label {
@@ -142,7 +135,6 @@ h1, h2, h3 {
     white-space: pre-wrap;
 }
 
-.divider { border-top: 1px solid #1e1e1e; margin: 20px 0; }
 .stSlider > div { color: #888 !important; }
 .stMarkdown p { color: #888; font-size: 14px; }
 hr { border-color: #222 !important; }
@@ -168,7 +160,7 @@ Analyze this email and generate exactly {num_concepts} hero image concepts for A
 
 For each concept return:
 - concept: A short name/theme for this visual direction (3-6 words)
-- visual_prompt: A detailed visual prompt for an AI image generator (Nano Banana Pro / Flux style). Describe only the visual scene — NO text, NO copy, NO UI overlays. Be specific about: subject, lighting, mood, color palette, composition, camera angle, style.
+- visual_prompt: A detailed visual prompt for an AI image generator (Nano Banana 2 / Flux style). Describe only the visual scene — NO text, NO copy, NO UI overlays. Be specific about: subject, lighting, mood, color palette, composition, camera angle, style.
 - headline: A compelling main headline for the email (under 55 chars)
 - cta: Button text (2-5 words){refinement_section}
 
@@ -200,25 +192,6 @@ Return ONLY a valid JSON array, no markdown, no explanation:
     return json.loads(raw)
 
 
-def generate_image_with_fal(fal_api_key, visual_prompt, image_size):
-    import os
-    os.environ["FAL_KEY"] = fal_api_key
-
-    result = fal_client.subscribe(
-        "fal-ai/nano-banana-pro",
-        arguments={
-            "prompt": visual_prompt,
-            "image_size": image_size,
-            "num_images": 1,
-        },
-    )
-
-    image_url = result["images"][0]["url"]
-    response = requests.get(image_url, timeout=30)
-    response.raise_for_status()
-    return response.content  # raw PNG/JPEG bytes
-
-
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 
 with st.sidebar:
@@ -227,26 +200,11 @@ with st.sidebar:
     st.markdown("<hr>", unsafe_allow_html=True)
 
     st.markdown("<p class='block-label'>Anthropic API Key</p>", unsafe_allow_html=True)
-    api_key = st.text_input("", type="password", placeholder="sk-ant-...", label_visibility="collapsed", key="anthropic_key")
-
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    st.markdown("<p class='block-label'>fal.ai API Key</p>", unsafe_allow_html=True)
-    fal_api_key = st.text_input("", type="password", placeholder="key-...", label_visibility="collapsed", key="fal_key")
-    st.markdown("<p style='font-size:11px;color:#444;margin-top:4px;'>Get it at <a href='https://fal.ai/dashboard/keys' target='_blank' style='color:#555;'>fal.ai/dashboard/keys</a></p>", unsafe_allow_html=True)
+    api_key = st.text_input("", type="password", placeholder="sk-ant-...", label_visibility="collapsed")
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     st.markdown("<p class='block-label'>Number of concepts</p>", unsafe_allow_html=True)
     num_concepts = st.slider("", min_value=1, max_value=10, value=5, label_visibility="collapsed")
-
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    st.markdown("<p class='block-label'>Image size</p>", unsafe_allow_html=True)
-    image_size = st.selectbox("", [
-        "landscape_16_9",
-        "landscape_4_3",
-        "square_hd",
-        "portrait_4_3",
-        "portrait_16_9",
-    ], label_visibility="collapsed")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────────
@@ -267,7 +225,7 @@ with col_left:
     st.markdown("<p class='block-label'>Refinement notes (optional)</p>", unsafe_allow_html=True)
     refinement_notes = st.text_area(
         "",
-        placeholder="e.g. Focus on outdoor lifestyle, warmer tones, avoid studio shots...",
+        placeholder="e.g. Focus on outdoor lifestyle, warmer tones, avoid studio shots, more emotional connection...",
         height=100,
         label_visibility="collapsed",
     )
@@ -281,12 +239,10 @@ with col_right:
 
     if "concepts" not in st.session_state: st.session_state.concepts = None
     if "error_msg" not in st.session_state: st.session_state.error_msg = None
-    if "generated_images" not in st.session_state: st.session_state.generated_images = {}
 
     if generate_btn:
         st.session_state.concepts = None
         st.session_state.error_msg = None
-        st.session_state.generated_images = {}
 
         if not api_key:
             st.session_state.error_msg = "Enter your Anthropic API key in the sidebar."
@@ -299,9 +255,7 @@ with col_right:
                 email_mime = get_mime(email_file.name)
 
                 with st.spinner("Analyzing email and generating concepts..."):
-                    st.session_state.concepts = generate_concepts(
-                        client, email_b64, email_mime, num_concepts, refinement_notes
-                    )
+                    st.session_state.concepts = generate_concepts(client, email_b64, email_mime, num_concepts, refinement_notes)
 
             except Exception as e:
                 st.session_state.error_msg = str(e)
@@ -313,7 +267,7 @@ with col_right:
         import streamlit.components.v1 as components
 
         def copy_button(text, key):
-            escaped = text.replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
+            escaped = text.replace("`", "\\`").replace("\\", "\\\\").replace("\n", "\\n")
             components.html(f"""
 <button onclick="navigator.clipboard.writeText(`{escaped}`).then(()=>{{
     this.textContent='Copied!';
@@ -322,7 +276,7 @@ with col_right:
 }})"
 style="background:transparent;border:1px solid #2a2a2a;border-radius:5px;
        color:#666;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.08em;
-       padding:3px 10px;cursor:pointer;transition:color 0.15s;margin-top:2px;">
+       padding:3px 10px;cursor:pointer;transition:color 0.15s;">
   Copy
 </button>
 """, height=36)
@@ -357,34 +311,7 @@ style="background:transparent;border:1px solid #2a2a2a;border-radius:5px;
                 with r6:
                     copy_button(c.get('cta',''), f"cta_{i}")
 
-                # Image generation via fal.ai
-                img_key = f"img_{i}"
-                if img_key in st.session_state.generated_images:
-                    img_bytes = st.session_state.generated_images[img_key]
-                    st.image(img_bytes, use_container_width=True)
-                    st.download_button(
-                        label="DOWNLOAD IMAGE",
-                        data=img_bytes,
-                        file_name=f"hero_concept_{i+1}.png",
-                        mime="image/png",
-                        key=f"dl_{i}",
-                        use_container_width=True,
-                    )
-                elif fal_api_key and FAL_SDK_AVAILABLE:
-                    if st.button("GENERATE IMAGE →", key=f"gen_{i}", use_container_width=True):
-                        with st.spinner("Generating with Nano Banana Pro..."):
-                            try:
-                                img_bytes = generate_image_with_fal(fal_api_key, c.get('visual_prompt',''), image_size)
-                                st.session_state.generated_images[img_key] = img_bytes
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Image generation failed: {e}")
-                elif not FAL_SDK_AVAILABLE:
-                    st.markdown("<p style='font-size:11px;color:#444;'>Run: pip install fal-client</p>", unsafe_allow_html=True)
-                else:
-                    st.markdown("<p style='font-size:11px;color:#444;'>Add fal.ai API key in sidebar to generate images</p>", unsafe_allow_html=True)
-
-                st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     elif not st.session_state.error_msg:
         st.markdown("""
