@@ -2,7 +2,15 @@ import streamlit as st
 import anthropic
 import base64
 import json
+import io
 from pathlib import Path
+
+try:
+    from google import genai as google_genai
+    from google.genai import types as google_types
+    GOOGLE_SDK_AVAILABLE = True
+except ImportError:
+    GOOGLE_SDK_AVAILABLE = False
 
 st.set_page_config(
     page_title="Hero Image Generator",
@@ -83,7 +91,7 @@ h1, h2, h3 {
     border: 1px solid #2a2a2a;
     border-radius: 10px;
     padding: 20px 24px;
-    margin-bottom: 16px;
+    margin-bottom: 4px;
 }
 
 .concept-index {
@@ -99,7 +107,7 @@ h1, h2, h3 {
     font-size: 16px;
     font-weight: 500;
     color: #e8e8e0;
-    margin-bottom: 16px;
+    margin-bottom: 0;
 }
 
 .field-label {
@@ -135,6 +143,7 @@ h1, h2, h3 {
     white-space: pre-wrap;
 }
 
+.divider { border-top: 1px solid #1e1e1e; margin: 20px 0; }
 .stSlider > div { color: #888 !important; }
 .stMarkdown p { color: #888; font-size: 14px; }
 hr { border-color: #222 !important; }
@@ -192,6 +201,22 @@ Return ONLY a valid JSON array, no markdown, no explanation:
     return json.loads(raw)
 
 
+def generate_image_with_gemini(google_api_key, visual_prompt):
+    """Call Gemini 3.1 Flash Image and return raw PNG bytes."""
+    client = google_genai.Client(api_key=google_api_key)
+    response = client.models.generate_content(
+        model="gemini-3.1-flash-image-preview",
+        contents=visual_prompt,
+        config=google_types.GenerateContentConfig(
+            response_modalities=["IMAGE", "TEXT"],
+        ),
+    )
+    for part in response.candidates[0].content.parts:
+        if part.inline_data is not None:
+            return part.inline_data.data  # raw bytes
+    raise ValueError("No image returned from Gemini API")
+
+
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 
 with st.sidebar:
@@ -200,7 +225,12 @@ with st.sidebar:
     st.markdown("<hr>", unsafe_allow_html=True)
 
     st.markdown("<p class='block-label'>Anthropic API Key</p>", unsafe_allow_html=True)
-    api_key = st.text_input("", type="password", placeholder="sk-ant-...", label_visibility="collapsed")
+    api_key = st.text_input("", type="password", placeholder="sk-ant-...", label_visibility="collapsed", key="anthropic_key")
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+    st.markdown("<p class='block-label'>Google API Key (for image generation)</p>", unsafe_allow_html=True)
+    google_api_key = st.text_input("", type="password", placeholder="AIza...", label_visibility="collapsed", key="google_key")
+    st.markdown("<p style='font-size:11px;color:#444;margin-top:4px;'>Get it free at <a href='https://aistudio.google.com/apikey' target='_blank' style='color:#555;'>aistudio.google.com</a></p>", unsafe_allow_html=True)
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
     st.markdown("<p class='block-label'>Number of concepts</p>", unsafe_allow_html=True)
@@ -239,10 +269,12 @@ with col_right:
 
     if "concepts" not in st.session_state: st.session_state.concepts = None
     if "error_msg" not in st.session_state: st.session_state.error_msg = None
+    if "generated_images" not in st.session_state: st.session_state.generated_images = {}
 
     if generate_btn:
         st.session_state.concepts = None
         st.session_state.error_msg = None
+        st.session_state.generated_images = {}
 
         if not api_key:
             st.session_state.error_msg = "Enter your Anthropic API key in the sidebar."
@@ -267,7 +299,7 @@ with col_right:
         import streamlit.components.v1 as components
 
         def copy_button(text, key):
-            escaped = text.replace("`", "\\`").replace("\\", "\\\\").replace("\n", "\\n")
+            escaped = text.replace("\\", "\\\\").replace("`", "\\`").replace("\n", "\\n")
             components.html(f"""
 <button onclick="navigator.clipboard.writeText(`{escaped}`).then(()=>{{
     this.textContent='Copied!';
@@ -276,7 +308,7 @@ with col_right:
 }})"
 style="background:transparent;border:1px solid #2a2a2a;border-radius:5px;
        color:#666;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.08em;
-       padding:3px 10px;cursor:pointer;transition:color 0.15s;">
+       padding:3px 10px;cursor:pointer;transition:color 0.15s;margin-top:2px;">
   Copy
 </button>
 """, height=36)
@@ -311,7 +343,35 @@ style="background:transparent;border:1px solid #2a2a2a;border-radius:5px;
                 with r6:
                     copy_button(c.get('cta',''), f"cta_{i}")
 
-                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+                # Generate image button (only if Google key provided)
+                if google_api_key and GOOGLE_SDK_AVAILABLE:
+                    img_key = f"img_{i}"
+                    if img_key in st.session_state.generated_images:
+                        img_bytes = st.session_state.generated_images[img_key]
+                        st.image(img_bytes, use_container_width=True)
+                        st.download_button(
+                            label="DOWNLOAD IMAGE",
+                            data=img_bytes,
+                            file_name=f"hero_concept_{i+1}.png",
+                            mime="image/png",
+                            key=f"dl_{i}",
+                            use_container_width=True,
+                        )
+                    else:
+                        if st.button(f"GENERATE IMAGE →", key=f"gen_{i}", use_container_width=True):
+                            with st.spinner("Generating with Nano Banana 2..."):
+                                try:
+                                    img_bytes = generate_image_with_gemini(google_api_key, c.get('visual_prompt',''))
+                                    st.session_state.generated_images[img_key] = img_bytes
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Image generation failed: {e}")
+                elif not GOOGLE_SDK_AVAILABLE:
+                    st.markdown("<p style='font-size:11px;color:#444;'>Install google-genai to enable image generation</p>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<p style='font-size:11px;color:#444;'>Add Google API key in sidebar to generate images</p>", unsafe_allow_html=True)
+
+                st.markdown("<div class='divider'></div>", unsafe_allow_html=True)
 
     elif not st.session_state.error_msg:
         st.markdown("""
