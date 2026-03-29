@@ -243,24 +243,54 @@ with col_right:
         st.error(st.session_state.error_msg)
 
     if st.session_state.concepts:
+        import streamlit.components.v1 as components
+
+        def copy_button(text, key):
+            escaped = text.replace("`", "\\`").replace("\\", "\\\\").replace("\n", "\\n")
+            components.html(f"""
+<button onclick="navigator.clipboard.writeText(`{escaped}`).then(()=>{{
+    this.textContent='Copied!';
+    this.style.color='#4ade80';
+    setTimeout(()=>{{this.textContent='Copy';this.style.color='#666';}},1500);
+}})"
+style="background:transparent;border:1px solid #2a2a2a;border-radius:5px;
+       color:#666;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:0.08em;
+       padding:3px 10px;cursor:pointer;transition:color 0.15s;">
+  Copy
+</button>
+""", height=36)
+
         for i, c in enumerate(st.session_state.concepts):
-            with st.container():
-                st.markdown(f"""
+            st.markdown(f"""
 <div class="concept-card">
   <div class="concept-index">Concept {i+1}</div>
   <div class="concept-title">{c.get('concept','')}</div>
-
-  <div class="field-label">Visual Prompt</div>
-  <div class="prompt-value">{c.get('visual_prompt','')}</div>
-
-  <div class="field-label">Headline</div>
-  <div class="field-value">{c.get('headline','')}</div>
-
-  <div class="field-label">CTA</div>
-  <div class="field-value">{c.get('cta','')}</div>
 </div>
 """, unsafe_allow_html=True)
-                st.code(c.get('visual_prompt',''), language=None)
+
+            with st.container():
+                r1, r2 = st.columns([10, 1])
+                with r1:
+                    st.markdown("<div class='field-label'>Visual Prompt</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='prompt-value'>{c.get('visual_prompt','')}</div>", unsafe_allow_html=True)
+                with r2:
+                    copy_button(c.get('visual_prompt',''), f"prompt_{i}")
+
+                r3, r4 = st.columns([10, 1])
+                with r3:
+                    st.markdown("<div class='field-label'>Headline</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='field-value'>{c.get('headline','')}</div>", unsafe_allow_html=True)
+                with r4:
+                    copy_button(c.get('headline',''), f"headline_{i}")
+
+                r5, r6 = st.columns([10, 1])
+                with r5:
+                    st.markdown("<div class='field-label'>CTA</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='field-value'>{c.get('cta','')}</div>", unsafe_allow_html=True)
+                with r6:
+                    copy_button(c.get('cta',''), f"cta_{i}")
+
+                st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     elif not st.session_state.error_msg:
         st.markdown("""
