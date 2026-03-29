@@ -47,6 +47,16 @@ h1, h2, h3 {
     font-size: 14px !important;
 }
 
+.stTextArea > div > div > textarea {
+    background: #1a1a1a !important;
+    border: 1px solid #2a2a2a !important;
+    border-radius: 6px !important;
+    color: #e8e8e0 !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+}
+
 .stButton > button {
     background: #e8e8e0 !important;
     color: #0e0e0e !important;
@@ -141,7 +151,9 @@ def get_mime(filename): return SUPPORTED_MIME.get(Path(filename).suffix.lstrip("
 def img_to_b64(b): return base64.standard_b64encode(b).decode("utf-8")
 
 
-def generate_concepts(client, email_b64, email_mime, num_concepts):
+def generate_concepts(client, email_b64, email_mime, num_concepts, refinement_notes=""):
+    refinement_section = f"\n\nAdditional direction from the user — take this into account:\n{refinement_notes.strip()}" if refinement_notes.strip() else ""
+
     prompt = f"""You are an expert email marketing art director.
 
 Analyze this email and generate exactly {num_concepts} hero image concepts for A/B testing.
@@ -150,7 +162,7 @@ For each concept return:
 - concept: A short name/theme for this visual direction (3-6 words)
 - visual_prompt: A detailed visual prompt for an AI image generator (Nano Banana 2 / Flux style). Describe only the visual scene — NO text, NO copy, NO UI overlays. Be specific about: subject, lighting, mood, color palette, composition, camera angle, style.
 - headline: A compelling main headline for the email (under 55 chars)
-- cta: Button text (2-5 words)
+- cta: Button text (2-5 words){refinement_section}
 
 Return ONLY a valid JSON array, no markdown, no explanation:
 [
@@ -210,6 +222,15 @@ with col_left:
         st.image(email_file, use_container_width=True)
 
     st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    st.markdown("<p class='block-label'>Refinement notes (optional)</p>", unsafe_allow_html=True)
+    refinement_notes = st.text_area(
+        "",
+        placeholder="e.g. Focus on outdoor lifestyle, warmer tones, avoid studio shots, more emotional connection...",
+        height=100,
+        label_visibility="collapsed",
+    )
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     generate_btn = st.button("GENERATE CONCEPTS →", use_container_width=True)
 
 with col_right:
@@ -234,7 +255,7 @@ with col_right:
                 email_mime = get_mime(email_file.name)
 
                 with st.spinner("Analyzing email and generating concepts..."):
-                    st.session_state.concepts = generate_concepts(client, email_b64, email_mime, num_concepts)
+                    st.session_state.concepts = generate_concepts(client, email_b64, email_mime, num_concepts, refinement_notes)
 
             except Exception as e:
                 st.session_state.error_msg = str(e)
