@@ -4,6 +4,23 @@ import base64
 import json
 from pathlib import Path
 
+try:
+    import pypdf
+    PYPDF_AVAILABLE = True
+except ImportError:
+    PYPDF_AVAILABLE = False
+
+
+def extract_pdf_text(file_bytes: bytes) -> str:
+    import io
+    reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+    texts = []
+    for page in reader.pages:
+        t = page.extract_text()
+        if t:
+            texts.append(t.strip())
+    return "\n\n".join(texts)
+
 st.set_page_config(
     page_title="Hero Image Generator",
     page_icon="🖼️",
@@ -151,8 +168,9 @@ def get_mime(filename): return SUPPORTED_MIME.get(Path(filename).suffix.lstrip("
 def img_to_b64(b): return base64.standard_b64encode(b).decode("utf-8")
 
 
-def generate_concepts(client, email_b64, email_mime, num_concepts, refinement_notes=""):
-    refinement_section = f"\n\nAdditional direction from the user — take this into account:\n{refinement_notes.strip()}" if refinement_notes.strip() else ""
+def generate_concepts(client, email_b64, email_mime, num_concepts, refinement_notes="", pdf_context=""):
+    refinement_section = f"\n\nAdditional direction from the user:\n{refinement_notes.strip()}" if refinement_notes.strip() else ""
+    pdf_section = f"\n\nReference documents — use the messaging, tone, claims, and brand language from these docs when writing headlines and CTA copy:\n{pdf_context.strip()}" if pdf_context.strip() else ""
 
     prompt = f"""You are an expert email marketing art director.
 
@@ -162,7 +180,7 @@ For each concept return:
 - concept: A short name/theme for this visual direction (3-6 words)
 - visual_prompt: A detailed visual prompt for an AI image generator (Nano Banana 2 / Flux style). Describe only the visual scene — NO text, NO copy, NO UI overlays. Be specific about: subject, lighting, mood, color palette, composition, camera angle, style.
 - headline: A compelling main headline for the email (under 55 chars)
-- cta: Button text (2-5 words){refinement_section}
+- cta: Button text (2-5 words){refinement_section}{pdf_section}
 
 Return ONLY a valid JSON array, no markdown, no explanation:
 [
@@ -231,6 +249,19 @@ with col_left:
     )
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    st.markdown("<p class='block-label'>Reference docs (optional PDF)</p>", unsafe_allow_html=True)
+    pdf_files = st.file_uploader(
+        "",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="pdfs",
+        label_visibility="collapsed",
+    )
+    if pdf_files:
+        for f in pdf_files:
+            st.markdown(f"<p style='font-size:11px;color:#555;margin:2px 0;'>📄 {f.name}</p>", unsafe_allow_html=True)
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     generate_btn = st.button("GENERATE CONCEPTS →", use_container_width=True)
 
 with col_right:
@@ -254,8 +285,24 @@ with col_right:
                 email_b64 = img_to_b64(email_file.read())
                 email_mime = get_mime(email_file.name)
 
+                # Extract text from PDFs
+                pdf_context = ""
+                if pdf_files and PYPDF_AVAILABLE:
+                    pdf_texts = []
+                    for f in pdf_files:
+                        try:
+                            text = extract_pdf_text(f.read())
+                            if text.strip():
+                                pdf_texts.append(f"--- {f.name} ---\n{text}")
+                        except Exception:
+                            pass
+                    if pdf_texts:
+                        pdf_context = "\n\n".join(pdf_texts)
+
                 with st.spinner("Analyzing email and generating concepts..."):
-                    st.session_state.concepts = generate_concepts(client, email_b64, email_mime, num_concepts, refinement_notes)
+                    st.session_state.concepts = generate_concepts(
+                        client, email_b64, email_mime, num_concepts, refinement_notes, pdf_context
+                    )
 
             except Exception as e:
                 st.session_state.error_msg = str(e)
